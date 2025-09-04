@@ -1,0 +1,476 @@
+<!DOCTYPE html>
+<html lang="en" class="h-full">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Silksong Save Editor</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <style>
+        body {
+            font-family: 'Inter', sans-serif;
+        }
+        /* Simple scrollbar styling for a more modern look */
+        ::-webkit-scrollbar {
+            width: 8px;
+            height: 8px;
+        }
+        ::-webkit-scrollbar-track {
+            background: #1f2937; /* bg-gray-800 */
+        }
+        ::-webkit-scrollbar-thumb {
+            background: #4b5563; /* bg-gray-600 */
+            border-radius: 4px;
+        }
+        ::-webkit-scrollbar-thumb:hover {
+            background: #6b7280; /* bg-gray-500 */
+        }
+        .tooltip {
+            position: relative;
+            display: inline-block;
+        }
+        .tooltip .tooltiptext {
+            visibility: hidden;
+            width: 140px;
+            background-color: #111827; /* bg-gray-900 */
+            color: #fff;
+            text-align: center;
+            border-radius: 6px;
+            padding: 5px 0;
+            position: absolute;
+            z-index: 1;
+            bottom: 125%;
+            left: 50%;
+            margin-left: -70px;
+            opacity: 0;
+            transition: opacity 0.3s;
+        }
+        .tooltip .tooltiptext::after {
+            content: "";
+            position: absolute;
+            top: 100%;
+            left: 50%;
+            margin-left: -5px;
+            border-width: 5px;
+            border-style: solid;
+            border-color: #111827 transparent transparent transparent;
+        }
+        .tooltip:hover .tooltiptext {
+            visibility: visible;
+            opacity: 1;
+        }
+        /* Hide scrollbar for the tab content, but allow scrolling */
+        #tab-content::-webkit-scrollbar {
+            display: none;
+        }
+        #tab-content {
+           -ms-overflow-style: none;  /* IE and Edge */
+            scrollbar-width: none;  /* Firefox */
+        }
+    </style>
+</head>
+<body class="bg-gray-900 text-gray-200 h-full flex flex-col items-center p-4 sm:p-6 md:p-8">
+
+    <div class="w-full max-w-7xl mx-auto h-full flex flex-col">
+        <!-- Header -->
+        <header class="text-center mb-6">
+            <h1 class="text-3xl sm:text-4xl font-bold text-white">Silksong Save Editor</h1>
+            <p class="text-gray-400 mt-2">Paste your JSON save file below to begin editing.</p>
+        </header>
+
+        <!-- Main Content -->
+        <main class="flex-grow flex flex-col lg:flex-row gap-6 h-full min-h-0">
+
+            <!-- Left Panel: JSON Input/Output -->
+            <div class="lg:w-1/2 flex flex-col h-full">
+                <div class="bg-gray-800 rounded-lg shadow-lg flex flex-col flex-grow h-full">
+                    <div class="p-4 border-b border-gray-700 flex justify-between items-center">
+                        <h2 class="text-xl font-semibold">Save File Data (JSON)</h2>
+                        <div class="flex gap-2">
+                             <div class="tooltip">
+                                <button id="copy-button" class="bg-indigo-600 hover:bg-indigo-700 text-white font-bold py-2 px-4 rounded-md transition duration-300 ease-in-out">
+                                    Copy
+                                </button>
+                                 <span class="tooltiptext" id="copy-tooltip">Copy to clipboard</span>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="p-4 flex-grow relative">
+                        <textarea id="json-input" class="w-full h-full bg-gray-900 text-gray-300 p-3 rounded-md resize-none border border-gray-700 focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500" placeholder="Paste your save file here... e.g., {&quot;playerData&quot;: {...}, &quot;sceneData&quot;: {...}}"></textarea>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Right Panel: Editable Fields -->
+            <div class="lg:w-1/2 flex flex-col h-full">
+                 <div class="bg-gray-800 rounded-lg shadow-lg flex flex-col flex-grow h-full min-h-0">
+                     <div class="p-4 border-b border-gray-700 flex justify-between items-center">
+                        <h2 class="text-xl font-semibold">Editable Fields</h2>
+                        <button id="load-button" class="bg-green-600 hover:bg-green-700 text-white font-bold py-2 px-4 rounded-md transition duration-300 ease-in-out">
+                            Load & Parse
+                        </button>
+                    </div>
+                    <div id="editor-fields" class="overflow-y-auto flex-grow flex flex-col min-h-0">
+                        <p class="text-gray-500 text-center p-4">Load a save file to see editable fields.</p>
+                    </div>
+                </div>
+            </div>
+
+        </main>
+        
+        <!-- Message Box -->
+        <div id="message-box" class="hidden fixed bottom-5 right-5 bg-red-500 text-white py-2 px-4 rounded-lg shadow-lg transition-opacity duration-300">
+            <p id="message-text"></p>
+        </div>
+    </div>
+
+    <script>
+        const jsonInput = document.getElementById('json-input');
+        const loadButton = document.getElementById('load-button');
+        const editorFields = document.getElementById('editor-fields');
+        const copyButton = document.getElementById('copy-button');
+        const copyTooltip = document.getElementById('copy-tooltip');
+        const messageBox = document.getElementById('message-box');
+        const messageText = document.getElementById('message-text');
+
+        let parsedData = {};
+
+        // --- Event Listeners ---
+        
+        loadButton.addEventListener('click', parseAndDisplayJson);
+        copyButton.addEventListener('click', copyJsonToClipboard);
+        
+        // Auto-update JSON when a field is changed
+        editorFields.addEventListener('change', (event) => {
+            if (event.target.tagName !== 'INPUT' && event.target.tagName !== 'SELECT') return;
+            const keyPath = event.target.dataset.key.split('.');
+            const value = parseValue(event.target.value, event.target.type, event.target.checked);
+            updateDataObject(keyPath, value);
+            updateJsonInput();
+        });
+
+        // --- Functions ---
+
+        /**
+         * Parses the value from an input field, converting to number or boolean if necessary.
+         */
+        function parseValue(value, type, checked) {
+            if (type === 'number') return Number(value);
+            if (type === 'checkbox') return checked;
+            // For select-booleans and text inputs that might be booleans
+            if (value.toLowerCase() === 'true') return true;
+            if (value.toLowerCase() === 'false') return false;
+            return value;
+        }
+        
+        /**
+         * Sorts the raw save data into logical categories for tabbing.
+         */
+        function sortDataIntoCategories(data) {
+            const categories = {
+                'Player Stats': {},
+                'Abilities & Skills': {},
+                'Inventory & Tools': {},
+                'Map & Exploration': {},
+                'Quests & NPCs': {},
+                'Enemy Journal': {},
+                'System & State': {},
+                'Scene Data': data.sceneData || {}, // Directly assign sceneData
+            };
+
+            const playerData = data.playerData || {};
+            const categorizedKeys = new Set();
+
+            const keyMappings = {
+                'Player Stats': ['health', 'maxHealth', 'maxHealthBase', 'healthBlue', 'prevHealth', 'heartPieces', 'geo', 'silk', 'silkMax', 'silkRegenMax', 'shellShards', 'rosaries'],
+                'Abilities & Skills': ['hasDash', 'hasBrolly', 'hasWalljump', 'hasDoubleJump', 'hasQuill', 'hasChargeSlash', 'hasSuperJump', 'hasSilkSpecial', 'hasNeedleThrow', 'hasThreadSphere', 'hasParry', 'hasHarpoonDash', 'hasSilkCharge', 'hasSilkBomb', 'hasSilkBossNeedle', 'hasNeedolin'],
+                'Inventory & Tools': ['ToolEquips', 'ExtraToolEquips', 'Tools', 'ToolLiquids', 'Collectables', 'Relics', 'ToolPouchUpgrades', 'ToolKitUpgrades', 'CurrentCrestID', 'UnlockedExtraBlueSlot', 'UnlockedExtraYellowSlot'],
+                'Map & Exploration': ['scenesVisited', 'scenesMapped', 'scenesEncounteredBench', 'scenesEncounteredCocoon', 'placedMarkers', 'mapAllRooms'],
+                'Enemy Journal': ['EnemyJournalKillData', 'hasJournal', 'seenJournalMsg', 'seenJournalQuestUpdateMsg'],
+                'System & State': ['version', 'profileID', 'playTime', 'openingCreditsPlayed', 'permadeathMode', 'atBench', 'respawnScene', 'mapZone', 'respawnMarkerName', 'respawnType', 'currentArea', 'isFirstGame', 'date', 'completionPercentage'],
+            };
+
+            // Assign keys based on exact matches from keyMappings
+            for (const category in keyMappings) {
+                for (const key of keyMappings[category]) {
+                    if (playerData.hasOwnProperty(key)) {
+                        categories[category][key] = playerData[key];
+                        categorizedKeys.add(key);
+                    }
+                }
+            }
+            
+            // Assign keys based on prefixes/suffixes for Map & Exploration
+            for (const key in playerData) {
+                if (categorizedKeys.has(key)) continue;
+                if (key.startsWith('visited') || key.endsWith('Map') || key.startsWith('hasPin') || key.startsWith('hasMarker') || key.startsWith('Unlocked') && key.includes('Station')) {
+                    categories['Map & Exploration'][key] = playerData[key];
+                    categorizedKeys.add(key);
+                }
+            }
+
+            // Put everything else from playerData into 'Quests & NPCs'
+            for (const key in playerData) {
+                if (!categorizedKeys.has(key)) {
+                    categories['Quests & NPCs'][key] = playerData[key];
+                }
+            }
+
+            // Clean up empty categories
+            for (const category in categories) {
+                if (Object.keys(categories[category]).length === 0 && category !== 'Scene Data') {
+                    delete categories[category];
+                }
+            }
+            return categories;
+        }
+
+        /**
+         * Parses the JSON and populates the editor fields with a categorized, tabbed interface.
+         */
+        function parseAndDisplayJson() {
+            try {
+                const rawJson = jsonInput.value;
+                if (!rawJson.trim()) {
+                    showMessage('Textarea is empty. Paste your save data first.', 'error');
+                    return;
+                }
+                parsedData = JSON.parse(rawJson);
+                editorFields.innerHTML = ''; // Clear previous fields
+
+                const categorizedData = sortDataIntoCategories(parsedData);
+                const categories = Object.keys(categorizedData);
+
+                if (categories.length === 0) {
+                     editorFields.innerHTML = '<p class="text-gray-500 text-center p-4">Could not find any data to display.</p>';
+                     return;
+                }
+
+                const tabContainer = document.createElement('div');
+                tabContainer.className = 'flex flex-col h-full';
+                
+                const tabNavContainer = document.createElement('div');
+                tabNavContainer.className = 'border-b border-gray-700 px-4';
+                
+                const tabNav = document.createElement('nav');
+                tabNav.className = '-mb-px flex space-x-6 overflow-x-auto';
+                tabNav.setAttribute('aria-label', 'Tabs');
+
+                const tabContent = document.createElement('div');
+                tabContent.id = 'tab-content';
+                tabContent.className = 'flex-grow p-4 overflow-y-auto';
+
+                categories.forEach((categoryName, index) => {
+                    const button = document.createElement('button');
+                    button.dataset.target = `panel-${categoryName.replace(/\s|&/g, '-')}`;
+                    button.textContent = categoryName;
+                    button.className = `whitespace-nowrap py-3 px-1 border-b-2 font-medium text-sm transition-colors`;
+                    if (index === 0) {
+                        button.classList.add('border-indigo-500', 'text-indigo-400');
+                    } else {
+                        button.classList.add('border-transparent', 'text-gray-400', 'hover:text-gray-300', 'hover:border-gray-500');
+                    }
+                    tabNav.appendChild(button);
+
+                    const panel = document.createElement('div');
+                    panel.id = `panel-${categoryName.replace(/\s|&/g, '-')}`;
+                    panel.className = index === 0 ? '' : 'hidden';
+                    
+                    const prefix = categoryName === 'Scene Data' ? 'sceneData' : 'playerData';
+                    createEditorFields(categorizedData[categoryName], panel, prefix);
+                    tabContent.appendChild(panel);
+                });
+
+                tabNavContainer.appendChild(tabNav);
+                tabContainer.appendChild(tabNavContainer);
+                tabContainer.appendChild(tabContent);
+                editorFields.appendChild(tabContainer);
+
+                tabNav.addEventListener('click', (e) => {
+                    if (e.target.tagName !== 'BUTTON') return;
+                    Array.from(tabNav.children).forEach(button => {
+                        button.classList.remove('border-indigo-500', 'text-indigo-400');
+                        button.classList.add('border-transparent', 'text-gray-400', 'hover:text-gray-300', 'hover:border-gray-500');
+                    });
+                    e.target.classList.add('border-indigo-500', 'text-indigo-400');
+                    e.target.classList.remove('border-transparent', 'text-gray-400');
+                    Array.from(tabContent.children).forEach(panel => panel.classList.add('hidden'));
+                    document.getElementById(e.target.dataset.target).classList.remove('hidden');
+                });
+
+                showMessage('JSON loaded and parsed successfully!', 'success');
+            } catch (error) {
+                console.error("JSON Parsing Error:", error);
+                editorFields.innerHTML = `<p class="text-red-400 text-center p-4">Error: Invalid JSON. Please check your save file format.</p>`;
+                showMessage('Failed to parse JSON. Check format.', 'error');
+                parsedData = {};
+            }
+        }
+
+        /**
+         * Recursively creates input fields for each key in the JSON object.
+         */
+        function createEditorFields(obj, parentElement, prefix = '') {
+            if (typeof obj !== 'object' || obj === null) {
+                parentElement.innerHTML = `<p class="text-gray-400">No data in this category.</p>`;
+                return;
+            }
+
+            const keys = Object.keys(obj);
+            if (keys.length === 0) {
+                 parentElement.innerHTML = `<p class="text-gray-400">No data in this category.</p>`;
+                 return;
+            }
+
+            for (const key in obj) {
+                if (obj.hasOwnProperty(key)) {
+                    const value = obj[key];
+                    const fullKey = prefix ? `${prefix}.${key}` : key;
+                    
+                    const container = document.createElement('div');
+                    container.className = 'mb-4';
+                    
+                    const prettyKey = key.replace(/([A-Z])/g, ' $1').replace(/^./, str => str.toUpperCase());
+
+                    if (Array.isArray(value)) {
+                        const fieldset = document.createElement('fieldset');
+                        fieldset.className = 'border border-gray-600 rounded-lg p-3 mt-2';
+                        const legend = document.createElement('legend');
+                        legend.className = 'px-2 text-indigo-400 font-semibold';
+                        legend.textContent = `${prettyKey} (${value.length} items)`;
+                        fieldset.appendChild(legend);
+                        container.appendChild(fieldset);
+
+                        value.forEach((item, index) => {
+                            createEditorFields({[`Item ${index}`]: item}, fieldset, `${fullKey}.${index}`);
+                        });
+
+                    } else if (typeof value === 'object' && value !== null) {
+                        const fieldset = document.createElement('fieldset');
+                        fieldset.className = 'border border-gray-600 rounded-lg p-3';
+                        const legend = document.createElement('legend');
+                        legend.className = 'px-2 text-indigo-400 font-semibold';
+                        legend.textContent = prettyKey;
+                        fieldset.appendChild(legend);
+                        container.appendChild(fieldset);
+                        createEditorFields(value, fieldset, fullKey);
+                    } else {
+                        const label = document.createElement('label');
+                        label.textContent = prettyKey;
+                        label.className = 'block text-sm font-medium text-gray-300 mb-1';
+                        
+                        const input = createInputField(fullKey, value);
+                        
+                        if (input.tagName === 'SELECT' || input.type === 'checkbox') {
+                             const flexContainer = document.createElement('div');
+                             flexContainer.className = 'flex items-center gap-3 justify-between';
+                             flexContainer.appendChild(label);
+                             flexContainer.appendChild(input);
+                             container.appendChild(flexContainer);
+                        } else {
+                            container.appendChild(label);
+                            container.appendChild(input);
+                        }
+                    }
+                    parentElement.appendChild(container);
+                }
+            }
+        }
+        
+        /**
+         * Creates an appropriate input element based on the value's type.
+         */
+        function createInputField(key, value) {
+            let input;
+            if (typeof value === 'boolean') {
+                input = document.createElement('select');
+                input.className = 'bg-gray-700 text-white p-2 rounded-md border border-gray-600 focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500';
+                const trueOpt = document.createElement('option');
+                trueOpt.value = 'true';
+                trueOpt.textContent = 'True';
+                const falseOpt = document.createElement('option');
+                falseOpt.value = 'false';
+                falseOpt.textContent = 'False';
+                input.appendChild(trueOpt);
+                input.appendChild(falseOpt);
+                input.value = value;
+            } else if (typeof value === 'number') {
+                input = document.createElement('input');
+                input.type = 'number';
+                input.value = value;
+                input.className = 'w-full bg-gray-700 text-white p-2 rounded-md border border-gray-600 focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500';
+            } else {
+                input = document.createElement('input');
+                input.type = 'text';
+                input.value = value;
+                input.className = 'w-full bg-gray-700 text-white p-2 rounded-md border border-gray-600 focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500';
+            }
+            input.dataset.key = key;
+            return input;
+        }
+
+        /**
+         * Updates the global `parsedData` object with a new value.
+         */
+        function updateDataObject(keyPath, value) {
+            let current = parsedData;
+            for (let i = 0; i < keyPath.length - 1; i++) {
+                if (current[keyPath[i]] === undefined) return; // Should not happen
+                current = current[keyPath[i]];
+            }
+            current[keyPath[keyPath.length - 1]] = value;
+        }
+        
+        /**
+         * Updates the main JSON textarea with the current state of `parsedData`.
+         */
+        function updateJsonInput() {
+            try {
+                jsonInput.value = JSON.stringify(parsedData, null, 2);
+            } catch (error) {
+                console.error("Error updating JSON input:", error);
+                 showMessage('An error occurred while updating the JSON.', 'error');
+            }
+        }
+
+        /**
+         * Copies the content of the JSON textarea to the clipboard.
+         */
+        function copyJsonToClipboard() {
+            if(!jsonInput.value) {
+                showMessage('Nothing to copy!', 'error');
+                return;
+            }
+            jsonInput.select();
+            try {
+                document.execCommand('copy');
+                copyTooltip.textContent = 'Copied!';
+                setTimeout(() => { copyTooltip.textContent = 'Copy to clipboard'; }, 2000);
+            } catch (err) {
+                console.error('Failed to copy: ', err);
+                copyTooltip.textContent = 'Failed to copy!';
+                 setTimeout(() => { copyTooltip.textContent = 'Copy to clipboard'; }, 2000);
+            }
+        }
+        
+        /**
+         * Shows a temporary message to the user.
+         */
+        let messageTimeout;
+        function showMessage(message, type = 'success') {
+            clearTimeout(messageTimeout);
+            messageText.textContent = message;
+            messageBox.className = `fixed bottom-5 right-5 text-white py-2 px-4 rounded-lg shadow-lg transition-opacity duration-300 ${type === 'success' ? 'bg-green-600' : 'bg-red-600'}`;
+            messageBox.classList.remove('hidden');
+            
+            messageTimeout = setTimeout(() => {
+                messageBox.classList.add('hidden');
+            }, 3000);
+        }
+
+    </script>
+</body>
+</html>
+
